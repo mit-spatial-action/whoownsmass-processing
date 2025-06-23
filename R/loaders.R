@@ -86,12 +86,18 @@ load_vintage_select <- function(path, most_recent = FALSE, muni_ids = NULL, rece
     dplyr::select(-c(year_diff, load, count))
 }
 
+#' Determine whether is represents a geodatabase or directory of file 
+#' geodatabases.
+#'
+#' @param path Character. Path to GDB/directory.
+#'
+#' @returns Character. Either `"dir"` or `"gdb"`.
 load_gdb_type <- function(path) {
   if (tools::file_ext(path) == "gdb" && dir.exists(path)) {
-    util_log_message("VALIDATION: Single geodatabase provided.")
+    message("Single geodatabase provided.")
     type <- "gdb"
   } else if (dir.exists(path) && length(list.files(path = path, pattern = "\\.gdb$")) > 0) {
-    util_log_message("VALIDATION: Folder of geodatabases provided.")
+    message("Folder of geodatabases provided.")
     type <- "dir"
   } else {
     stop("VALIDATION: Invalid geodatabase provided.")
@@ -99,6 +105,17 @@ load_gdb_type <- function(path) {
   type
 }
 
+#' Build a basic SQL query using simple vectors
+#'
+#' @param from Character. Name of table to query.
+#' @param select Character vector. List of columns to return. If `NULL` (the
+#'  default), returns all columns (`SELECT * FROM ...`).
+#' @param where Condition as string. If `NULL`, (the default), no conditional is
+#'  applied.
+#' @param limit Integer. Maximum number of rows to return. If `NULL`, all
+#'  rows are returned.
+#'
+#' @returns A SQL query as character.
 load_sql_query <- function(from, select = NULL, where = NULL, limit = NULL) {
   if (!is.null(select)) {
     s <- stringr::str_c(select, collapse = ',')
@@ -467,102 +484,16 @@ load_luc_crosswalk <- function(file = file.path("data", "mhp_luc_cw.csv")) {
 
 ## Primary ====
 
-#' Load Assessors' Tables from MassGIS Parcel GDB(s)
-#' 
-#' Load assessing table from MassGIS tax parcel collection, presented either
-#' as a single GDB or a folder of many vintages.
-#' See https://www.mass.gov/info-details/massgis-data-property-tax-parcels
+#' Load parcels/assessor's tables from geodatabase(s).
 #'
-#' @param path Path to collection of MassGIS Parcel GDBs or single GDB.
-#' @param layer Name of layer from which to read assessors table.
-#' @param col_cw Path to column crosswalk.
-#' @param state Two-character abbrevation of state.
-#' @param muni_ids Vector of municipality IDs.
-#' @param fy = Preferred fiscal year.
-#' @param cy = Preferred calendar year.
-#' @param most_recent If `TRUE`, selects most recent year when presented with
-#' a folder of vintages.
-#' 
-#' @return A data frame of assessors' records for specified municipalities.
-#' 
-#' @export
-load_assess <- function(path, 
-                        layer, 
-                        state, 
-                        col_cw = file.path("data", "col_cw.csv"),
-                        muni_ids=NULL, 
-                        fy = NULL, 
-                        cy = NULL, 
-                        most_recent=FALSE
-                        ) {
-  state <- stringr::str_to_lower(state)
-  
-  col_cw <- col_cw |>
-    readr::read_csv() |>
-    dplyr::filter(table == "assess")
-  
-  col_list <- col_cw |> 
-    tidyr::drop_na(dplyr::matches(state))
-  
-  type <- load_gdb_type(path)
-  
-  if (type == "gdb") {
-    df <- load_from_gdb(
-      path = path, 
-      select = dplyr::pull(col_list, dplyr::matches(state)),
-      from = layer, 
-      where_ids = muni_ids, 
-      where_col = col_cw |>
-        dplyr::filter(name == "site_muni_id") |> 
-        dplyr::pull(dplyr::all_of(state))
-    )
-  } else if (type == "dir") {
-    if (is.null(fy) & is.null(cy)) {
-      vintages <- load_vintage_select(path, muni_ids, most_recent=most_recent)
-    } else {
-      vintages <- data.frame(
-        muni_id = muni_ids
-      ) |>
-        dplyr::mutate(
-          fy = fy,
-          cy = cy
-        )
-    }
-    
-    all <- list()
-    for (row in 1:nrow(vintages)) {
-      muni_id <- vintages[[row, 'muni_id']]
-      cy <- vintages[[row, 'cy']] - 2000
-      fy <- vintages[[row, 'fy']] - 2000
-      
-      file <- glue::glue("M{muni_id}_parcels_CY{cy}_FY{fy}_sde.gdb")
-      if (!load_gdb_type(file.path(path, file))) {
-        stop("You've passed an invalid GDB directory.")
-      }
-      
-      q <- stringr::str_c("SELECT", cols, glue::glue("FROM M{muni_id}Assess"), sep = " ")
-      
-      all[[muni_id]] <- sf::st_read(
-        file.path(path, file),
-        query = q,
-        quiet = TRUE
-      )
-    }
-    df <- dplyr::bind_rows(all)
-  }
-  
-  df |>
-    load_rename_with_cols(from = col_list[[state]], to = col_list[["name"]])
-}
-
-#' Load Parcels from MassGIS Parcel GDB(s)
-#' 
-#' Load parcels from MassGIS tax parcel collection, presented either
-#' as a single GDB or a folder of many vintages.
-#' See https://www.mass.gov/info-details/massgis-data-property-tax-parcels
-#'
-#' @param gdb_path Path to collection of MassGIS Parcel GDBs or single GDB.
-#' @param muni_ids Vector of municipality IDs.
+#' @param path Character. Path to collection of GDBs or single GDB.
+#' @param layer Character. Name of layer to load.
+#' @param layer_type Character. Either `"parcel"` or `"assess"`.
+#' @param state Character. Two-character state abbreviation.
+#' @param muni_ids Integer vector representing IDs of municipality IDs.
+#' @param col_cw Path to column crosswalk file. Defaults to `file.path("data",
+#'  "col_cw.csv")`
+#' @param most_recent Boolean. Not currently used.
 #' 
 #' @return An `sf` dataframe containing MULTIPOLYGON parcels for specified 
 #' municipalities.
@@ -570,15 +501,17 @@ load_assess <- function(path,
 #' @export
 load_parcels <- function(path, 
                          layer, 
-                         col_cw, 
+                         layer_type,
                          state, 
-                         muni_ids=NULL, 
-                         most_recent = FALSE
+                         muni_ids = NULL,
+                         most_recent = FALSE,
+                         col_cw = file.path("data", "col_cw.csv")
                          ) {
   state <- stringr::str_to_lower(state)
   
   col_cw <- col_cw |>
-    dplyr::filter(table == "parcel")
+    readr::read_csv() |>
+    dplyr::filter(table == layer_type)
   
   col_list <- col_cw |> 
     tidyr::drop_na(dplyr::matches(state))
@@ -595,31 +528,32 @@ load_parcels <- function(path,
         dplyr::filter(name == "site_muni_id") |> 
         dplyr::pull(dplyr::all_of(state))
     )
-  } else if (type == "dir") {
-    vintages <- load_vintage_select(path, muni_ids, most_recent=most_recent)
-    
-    all <- list()
-    for (row in 1:nrow(vintages)) {
-      
-      muni_id <- vintages[[row, 'muni_id']]
-      cy <- vintages[[row, 'cy']] - 2000
-      fy <- vintages[[row, 'fy']] - 2000
-      
-      file <- glue::glue("M{muni_id}_parcels_CY{cy}_FY{fy}_sde.gdb")
-      q <- glue::glue("SELECT LOC_ID, TOWN_ID AS MUNI_ID FROM M{muni_id}TaxPar")
-      
-       sdf <- sf::st_read(
-        file.path(path, file), 
-        query = q, 
-        quiet = TRUE
-        ) |>
-         load_rename_geometry("geometry")
-        
-       all[[muni_id]] <- sdf
-    }
-    df <- dplyr::bind_rows(all)
-    rm(all)
-  }
+  } 
+  # else if (type == "dir") {
+  #   vintages <- load_vintage_select(path, muni_ids, most_recent=most_recent)
+  #   
+  #   all <- list()
+  #   for (row in 1:nrow(vintages)) {
+  #     
+  #     muni_id <- vintages[[row, 'muni_id']]
+  #     cy <- vintages[[row, 'cy']] - 2000
+  #     fy <- vintages[[row, 'fy']] - 2000
+  #     
+  #     file <- glue::glue("M{muni_id}_parcels_CY{cy}_FY{fy}_sde.gdb")
+  #     q <- glue::glue("SELECT LOC_ID, TOWN_ID AS MUNI_ID FROM M{muni_id}TaxPar")
+  #     
+  #      sdf <- sf::st_read(
+  #       file.path(path, file), 
+  #       query = q, 
+  #       quiet = TRUE
+  #       ) |>
+  #        load_rename_geometry("geometry")
+  #       
+  #      all[[muni_id]] <- sdf
+  #   }
+  #   df <- dplyr::bind_rows(all)
+  #   rm(all)
+  # }
   df
 }
 
