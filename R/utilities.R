@@ -66,7 +66,6 @@ utils_validate_config <- function(config) {
   if (!file.exists(config$alt_names_path)) {
     stop("You provided an invalid `alt_names_path`. Check `config.yaml`.")
   }
-  util_conn(test=TRUE)
   config
 }
 

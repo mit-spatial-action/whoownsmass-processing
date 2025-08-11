@@ -1,7 +1,11 @@
 targets::tar_option_set(
   format = "qs",
-  packages = c("config", "tigris", "readr")
+  packages = c("config", "tigris", "readr", "httr", "sf")
 )
+
+targets::tar_source()
+
+# util_conn(test=TRUE)
 
 # Targets Pipeline ====
 list(

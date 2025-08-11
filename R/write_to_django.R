@@ -15,7 +15,7 @@ django_zips <- function(zips, crs=4326) {
   zips |>
     sf::st_transform(crs) |>
     dplyr::select(
-      -dplyr::any_of(c("state", "unambig_state", "muni_unambig_from", "muni_unambig_to"))
+      -dplyr::any_of(c("state", "state_from", "muni_from"))
     )
 }
 
@@ -50,12 +50,7 @@ django_truncate_tables <- function(conn) {
 
 write_to_django <- function(load_prefix, django_prefix) {
   
-  if (!util_check_for_results()) {
-    util_log_message("VALIDATION: Results not present in environment. Pulling from database. 🚀🚀🚀")
-    load_results(load_prefix, load_boundaries=TRUE, summarize=TRUE)
-  } else {
-    util_log_message("VALIDATION: Results already present in environment. 🚀🚀🚀")
-  }
+  load_results(load_prefix, load_boundaries=TRUE, summarize=TRUE)
   
   util_test_conn(django_prefix)
   conn <- util_conn(django_prefix)

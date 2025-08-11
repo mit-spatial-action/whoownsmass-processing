@@ -518,6 +518,7 @@ load_parcels <- function(path,
   
   type <- load_gdb_type(path)
   
+  
   if (type == "gdb") {
     df <- load_from_gdb(
       path = path, 
@@ -525,7 +526,9 @@ load_parcels <- function(path,
       from = layer, 
       where_ids = muni_ids, 
       where_col = col_cw |>
-        dplyr::filter(name == "site_muni_id") |> 
+        dplyr::filter(
+          name == ifelse(layer_type == "assess", "site_muni_id", "muni_id")
+          ) |> 
         dplyr::pull(dplyr::all_of(state))
     )
   } 
